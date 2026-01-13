@@ -3,7 +3,6 @@ models/
 
 # Intermediate/deprecated Dockerfiles (keep only *-cuda13-build)
 Dockerfile
-Dockerfile.asr
 Dockerfile.asr-cuda13
 
 # Development test files

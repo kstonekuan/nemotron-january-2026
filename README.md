@@ -182,6 +182,31 @@ pipecat cloud agent start gdx-spark-bot --use-daily
 [See docs](https://docs.pipecat.ai/deployment/pipecat-cloud/fundamentals/active-sessions) for REST and Python usage.
 
 
+## ASR-Only Deployment (Lightweight)
+
+For deploying just the ASR service without TTS or LLM, use the lightweight `Dockerfile.asr`:
+
+```bash
+# Build (~5 minutes, ~25-30 GB image)
+docker build -f Dockerfile.asr -t nemotron-asr .
+
+# Run
+docker run --gpus all -p 9765:9765 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  nemotron-asr
+
+# Or use the convenience script
+./scripts/start_asr.sh          # Foreground
+./scripts/start_asr.sh -d       # Background
+./scripts/start_asr.sh --build  # Build first, then run
+```
+
+**Supported GPUs**: RTX 4080, RTX 4090, RTX 5090, A100, and other CUDA 13.x compatible GPUs.
+
+The ASR server exposes:
+- WebSocket endpoint at `ws://localhost:9765/` for streaming transcription
+- Health check at `http://localhost:9765/health`
+
 ## Bot Variants
 
 Three bot implementations are available:

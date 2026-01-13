@@ -1,0 +1,81 @@
+# Dockerfile.asr - Lightweight ASR-only container
+# Build time: ~10-15 minutes | Image size: ~25-30 GB
+# Supports: RTX 4080, RTX 4090, RTX 5090, A100, and other CUDA 12.x+ compatible GPUs
+#
+# Build:
+#   docker build -f Dockerfile.asr -t nemotron-asr .
+#
+# Run:
+#   docker run --gpus all -p 9765:9765 \
+#     -v ~/.cache/huggingface:/root/.cache/huggingface \
+#     nemotron-asr
+
+# Use CUDA 12.4 to match PyTorch 2.5.1's pre-built wheel (torch 2.5.1+cu124)
+# The host's CUDA 13.x driver is forward-compatible with CUDA 12.4 applications
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+# Prevent interactive prompts during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    libsndfile1 \
+    ffmpeg \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3-pip \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Install uv for fast package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Create app directory
+WORKDIR /app
+
+# Install Python dependencies using uv
+# Using PyTorch 2.5.1 with CUDA 12.4 for stability with NeMo's TorchScript
+RUN uv pip install --system --no-cache \
+    "hf_transfer>=0.1.9" \
+    "huggingface_hub[hf-xet]>=0.31.0" \
+    "numpy<2.0.0" \
+    "torch==2.5.1" \
+    aiohttp \
+    loguru \
+    omegaconf \
+    Cython \
+    webdataset \
+    hydra-core \
+    websockets
+
+# Install NeMo ASR toolkit (pre-built wheel)
+# Using the same commit as Modal for consistency
+RUN uv pip install --system --no-cache \
+    "nemo_toolkit[asr] @ git+https://github.com/NVIDIA/NeMo.git@644201898480ec8c8d0a637f0c773825509ac4dc"
+
+# Environment variables
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV PYTHONUNBUFFERED=1
+# Disable PyTorch JIT to avoid TorchScript segfault in NeMo's online_clustering.py
+ENV PYTORCH_JIT=0
+
+# Copy only ASR-related source files
+COPY src/nemotron_speech/__init__.py /app/nemotron_speech/
+COPY src/nemotron_speech/server.py /app/nemotron_speech/
+
+# Expose ASR WebSocket port
+EXPOSE 9765
+
+# Health check - use curl to check server endpoint (faster than Python import)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:9765/health || exit 1
+
+# Default command - start ASR server
+CMD ["python", "-m", "nemotron_speech.server", "--host", "0.0.0.0", "--port", "9765"]
